@@ -36,6 +36,12 @@ export default function BookManagePage() {
   const [bookFile, setBookFile] = useState<File | null>(null);
   const [coverImage, setCoverImage] = useState<File | null>(null);
 
+  // Bulk upload states
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkBookFiles, setBulkBookFiles] = useState<File[]>([]);
+  const [bulkCoverFiles, setBulkCoverFiles] = useState<File[]>([]);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+
   useEffect(() => {
     fetchBooks();
   }, []);
@@ -96,24 +102,20 @@ export default function BookManagePage() {
     setIsSubmitting(true);
 
     try {
-      if (editingBook) {
-        // Update basic info (backend doesn't handle file update in put yet, keeping it simple)
-        await updateBook(editingBook.id, {
-          ...formData,
-          details: { Publisher: formData.publisher, Pages: formData.pages }
-        });
-      } else {
-        const data = new FormData();
-        data.append("title", formData.title);
-        data.append("author", formData.author);
-        data.append("description", formData.description);
-        data.append("category", formData.category);
-        data.append("price", formData.price);
-        data.append("details", JSON.stringify({ Publisher: formData.publisher, Pages: formData.pages }));
-        
-        if (bookFile) data.append("file", bookFile);
-        if (coverImage) data.append("cover", coverImage);
+      const data = new FormData();
+      data.append("title", formData.title);
+      data.append("author", formData.author);
+      data.append("description", formData.description);
+      data.append("category", formData.category);
+      data.append("price", formData.price);
+      data.append("details", JSON.stringify({ Publisher: formData.publisher, Pages: formData.pages }));
+      
+      if (bookFile) data.append("file", bookFile);
+      if (coverImage) data.append("cover", coverImage);
 
+      if (editingBook) {
+        await updateBook(editingBook.id, data);
+      } else {
         await createBook(data);
       }
       
@@ -122,6 +124,53 @@ export default function BookManagePage() {
     } catch (error) {
       console.error("Submission failed:", error);
       alert("Operation failed. Check console for details.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkSubmit = async () => {
+    if (bulkBookFiles.length === 0) return;
+    setIsSubmitting(true);
+    setBulkProgress({ current: 0, total: bulkBookFiles.length });
+
+    const authors = ["James Wilson", "Robert Miller", "Michael Davis", "William Taylor", "David Anderson"];
+    const categories = ["Fiction", "Philosophy", "Classic", "Poetry", "Non-Fiction"];
+    const prices = ["0.99", "1.99", "2.99", "3.99", "4.99", "5.99", "6.99", "7.99", "8.99", "9.99"];
+
+    try {
+      for (let i = 0; i < bulkBookFiles.length; i++) {
+        setBulkProgress({ current: i + 1, total: bulkBookFiles.length });
+        const file = bulkBookFiles[i];
+        const cover = bulkCoverFiles[i] || null;
+
+        const title = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+        const author = authors[Math.floor(Math.random() * authors.length)];
+        const category = categories[Math.floor(Math.random() * categories.length)];
+        const price = `$${prices[Math.floor(Math.random() * prices.length)]}`;
+        const description = `An exceptional piece of literature that explores the depths of ${category.toLowerCase()} through the unique lens of ${author}. A must-read for collectors and enthusiasts alike.`;
+
+        const data = new FormData();
+        data.append("title", title);
+        data.append("author", author);
+        data.append("description", description);
+        data.append("category", category);
+        data.append("price", price);
+        data.append("details", JSON.stringify({ Publisher: "Signature Press", Pages: "120" }));
+        data.append("file", file);
+        if (cover) data.append("cover", cover);
+
+        await createBook(data);
+      }
+      
+      await fetchBooks();
+      setBulkBookFiles([]);
+      setBulkCoverFiles([]);
+      setIsBulkModalOpen(false);
+      alert(`Successfully archived ${bulkBookFiles.length} books!`);
+    } catch (error) {
+      console.error("Bulk upload failed:", error);
+      alert("Bulk upload failed at index " + bulkProgress.current);
     } finally {
       setIsSubmitting(false);
     }
@@ -143,13 +192,22 @@ export default function BookManagePage() {
             </h1>
             <p className="text-slate-500 mt-1">Manage your literary collection and archival files.</p>
           </div>
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
-          >
-            <Plus className="w-5 h-5" />
-            Add New Book
-          </button>
+          <div className="flex gap-4">
+            <button 
+              onClick={() => setIsBulkModalOpen(true)}
+              className="bg-white text-indigo-600 border-2 border-indigo-600 px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              Bulk Archival
+            </button>
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+            >
+              <Plus className="w-5 h-5" />
+              Add New Book
+            </button>
+          </div>
         </header>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -261,6 +319,115 @@ export default function BookManagePage() {
         </div>
       </div>
 
+      {/* Bulk Upload Modal */}
+      {isBulkModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <Plus className="w-6 h-6 text-indigo-600" />
+                Bulk Archive Library
+              </h2>
+              <button onClick={() => setIsBulkModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-8">
+              <div className="grid grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <label className="block text-sm font-bold text-slate-700">1. Select Book Files ({bulkBookFiles.length})</label>
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:border-indigo-400 transition-colors relative">
+                    <input 
+                      type="file" 
+                      multiple
+                      accept=".pdf,.epub,.doc,.docx"
+                      onChange={(e) => setBulkBookFiles(Array.from(e.target.files || []))}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                    <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Drop PDF/EPUB files</p>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto text-[10px] text-slate-400 space-y-1 pr-2">
+                    {bulkBookFiles.map((f, idx) => (
+                      <div key={f.name + idx} className="flex justify-between items-center bg-slate-50 p-1.5 rounded hover:bg-slate-100 transition-colors group/item">
+                        <span className="truncate flex-grow">{f.name}</span>
+                        <button 
+                          onClick={() => setBulkBookFiles(bulkBookFiles.filter((_, i) => i !== idx))}
+                          className="text-slate-300 hover:text-rose-500 transition-colors ml-2"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="block text-sm font-bold text-slate-700">2. Select Cover Images ({bulkCoverFiles.length})</label>
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:border-indigo-400 transition-colors relative">
+                    <input 
+                      type="file" 
+                      multiple
+                      accept="image/*"
+                      onChange={(e) => setBulkCoverFiles(Array.from(e.target.files || []))}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                    <ImageIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Drop Covers (Matching Order)</p>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto text-[10px] text-slate-400 space-y-1 pr-2">
+                    {bulkCoverFiles.map((f, idx) => (
+                      <div key={f.name + idx} className="flex justify-between items-center bg-slate-50 p-1.5 rounded hover:bg-slate-100 transition-colors group/item">
+                        <span className="truncate flex-grow">{f.name}</span>
+                        <button 
+                          onClick={() => setBulkCoverFiles(bulkCoverFiles.filter((_, i) => i !== idx))}
+                          className="text-slate-300 hover:text-rose-500 transition-colors ml-2"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {isSubmitting && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-bold text-indigo-600 uppercase tracking-widest">
+                    <span>Archiving in progress...</span>
+                    <span>{bulkProgress.current} / {bulkProgress.total}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-indigo-600 h-full transition-all duration-300"
+                      style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 flex gap-4">
+                <button 
+                  onClick={() => setIsBulkModalOpen(false)}
+                  className="flex-1 px-6 py-4 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={isSubmitting || bulkBookFiles.length === 0}
+                  onClick={handleBulkSubmit}
+                  className="flex-2 px-12 py-4 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
+                  Archive Collection
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Form */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -342,7 +509,6 @@ export default function BookManagePage() {
                 </div>
               </div>
 
-              {!editingBook && (
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
@@ -367,7 +533,6 @@ export default function BookManagePage() {
                     />
                   </div>
                 </div>
-              )}
 
               <div className="pt-6 flex gap-4">
                 <button 
