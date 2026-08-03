@@ -20,6 +20,15 @@ export interface Book {
   created_at: string;
 }
 
+export interface StripeSetting {
+  id: string;
+  account_name: string;
+  publishable_key: string;
+  secret_key: string;
+  is_active: boolean;
+  created_at: string;
+}
+
 export const getBooks = () => api.get<Book[]>('/books');
 export const getBook = (id: string) => api.get<Book>(`/books/${id}`);
 export const createBook = (formData: FormData) => api.post('/books', formData, {
@@ -32,3 +41,9 @@ export const updateBook = (id: string, data: FormData | Partial<Book>) => {
 export const deleteBook = (id: string) => api.delete(`/books/${id}`);
 export const deleteBatchBooks = (ids: string[]) => api.post('/books/delete-batch', { ids });
 export const deleteAllBooks = () => api.delete('/books/all/truncate');
+
+export const getStripeSettings = () => api.get<StripeSetting[]>('/checkout/stripe-settings');
+export const addStripeSetting = (data: { account_name: string; publishable_key?: string; secret_key: string; is_active?: boolean }) => 
+  api.post<StripeSetting>('/checkout/stripe-settings', data);
+export const activateStripeSetting = (id: string) => api.put<StripeSetting>(`/checkout/stripe-settings/${id}/activate`);
+export const deleteStripeSetting = (id: string) => api.delete(`/checkout/stripe-settings/${id}`);

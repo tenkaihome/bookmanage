@@ -14,14 +14,32 @@ import {
   ExternalLink,
   Filter,
   RotateCcw,
-  CheckSquare,
-  Square,
-  Trash
+  Trash,
+  CreditCard,
+  CheckCircle2,
+  Key,
+  ShieldCheck,
+  Zap,
+  Check
 } from "lucide-react";
-import { getBooks, deleteBook, deleteBatchBooks, deleteAllBooks, createBook, updateBook, Book } from "@/lib/api";
+import { 
+  getBooks, 
+  deleteBook, 
+  deleteBatchBooks, 
+  deleteAllBooks, 
+  createBook, 
+  updateBook, 
+  Book,
+  getStripeSettings,
+  addStripeSetting,
+  activateStripeSetting,
+  deleteStripeSetting,
+  StripeSetting
+} from "@/lib/api";
 import { parseEpubFile } from "@/lib/epubParser";
 
 export default function BookManagePage() {
+  const [activeTab, setActiveTab] = useState<'books' | 'stripe'>('books');
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -34,6 +52,17 @@ export default function BookManagePage() {
   const [selectedAuthor, setSelectedAuthor] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedPriceFilter, setSelectedPriceFilter] = useState("");
+
+  // Stripe Settings states
+  const [stripeSettings, setStripeSettings] = useState<StripeSetting[]>([]);
+  const [stripeLoading, setStripeLoading] = useState(false);
+  const [isStripeModalOpen, setIsStripeModalOpen] = useState(false);
+  const [stripeFormData, setStripeFormData] = useState({
+    account_name: "",
+    publishable_key: "",
+    secret_key: "",
+    is_active: true
+  });
 
   // Form states
   const [formData, setFormData] = useState({
@@ -59,6 +88,7 @@ export default function BookManagePage() {
 
   useEffect(() => {
     fetchBooks();
+    fetchStripeSettings();
   }, []);
 
   const fetchBooks = async () => {
@@ -69,6 +99,18 @@ export default function BookManagePage() {
       console.error("Failed to fetch books:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchStripeSettings = async () => {
+    setStripeLoading(true);
+    try {
+      const response = await getStripeSettings();
+      setStripeSettings(response.data);
+    } catch (error) {
+      console.error("Failed to fetch Stripe settings:", error);
+    } finally {
+      setStripeLoading(false);
     }
   };
 
@@ -138,6 +180,45 @@ export default function BookManagePage() {
     setSelectedAuthor("");
     setSelectedCategory("");
     setSelectedPriceFilter("");
+  };
+
+  const handleAddStripeSettingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripeFormData.account_name || !stripeFormData.secret_key) {
+      alert("Please enter Account Name and Secret Key.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await addStripeSetting(stripeFormData);
+      await fetchStripeSettings();
+      setIsStripeModalOpen(false);
+      setStripeFormData({ account_name: "", publishable_key: "", secret_key: "", is_active: true });
+    } catch (error: any) {
+      console.error("Failed to add Stripe account:", error);
+      alert(error.response?.data?.error || "Failed to add Stripe account configuration.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleActivateStripeSetting = async (id: string) => {
+    try {
+      await activateStripeSetting(id);
+      await fetchStripeSettings();
+    } catch (error) {
+      alert("Failed to activate Stripe account");
+    }
+  };
+
+  const handleDeleteStripeSetting = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this Stripe configuration?")) return;
+    try {
+      await deleteStripeSetting(id);
+      await fetchStripeSettings();
+    } catch (error) {
+      alert("Failed to delete Stripe configuration");
+    }
   };
 
   const handleEdit = (book: Book) => {
@@ -305,266 +386,539 @@ export default function BookManagePage() {
 
   const isAllSelected = filteredBooks.length > 0 && selectedBookIds.length === filteredBooks.length;
   const isAnyFilterActive = Boolean(searchTerm || selectedAuthor || selectedCategory || selectedPriceFilter);
+  const activeStripeSetting = stripeSettings.find(s => s.is_active);
 
   return (
     <div className="min-h-screen bg-slate-50 p-8 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto">
+        {/* Navigation Tabs Header */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
               <BookIcon className="w-8 h-8 text-indigo-600" />
               Bookpatr Management
             </h1>
-            <p className="text-slate-500 mt-1">Manage your literary collection, archival files, and batch actions.</p>
+            <p className="text-slate-500 mt-1">Manage your literary collection, archival files, and Stripe payment accounts.</p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            {selectedBookIds.length > 0 && (
-              <button 
-                onClick={handleDeleteSelected}
-                disabled={isSubmitting}
-                className="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-rose-100 transition-all text-sm disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                Xóa {selectedBookIds.length} đã chọn
-              </button>
-            )}
-            
-            {books.length > 0 && (
-              <button 
-                onClick={handleDeleteAll}
-                disabled={isSubmitting}
-                className="bg-red-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-red-700 transition-all text-sm shadow-md shadow-red-200 disabled:opacity-50"
-              >
-                <Trash className="w-4 h-4" />
-                Xóa Tất Cả ({books.length})
-              </button>
-            )}
 
+          <div className="flex bg-slate-200/70 p-1.5 rounded-2xl border border-slate-300/50">
             <button 
-              onClick={() => setIsBulkModalOpen(true)}
-              className="bg-white text-indigo-600 border-2 border-indigo-600 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all text-sm"
+              onClick={() => setActiveTab('books')}
+              className={`px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all ${
+                activeTab === 'books'
+                  ? 'bg-white text-indigo-600 shadow-md shadow-slate-200'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              Bulk Archival
+              <BookIcon className="w-4 h-4" />
+              Book Collection ({books.length})
             </button>
             <button 
-              onClick={() => setIsModalOpen(true)}
-              className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 text-sm"
+              onClick={() => setActiveTab('stripe')}
+              className={`px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all ${
+                activeTab === 'stripe'
+                  ? 'bg-white text-indigo-600 shadow-md shadow-slate-200'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              Add New Book
+              <CreditCard className="w-4 h-4" />
+              Stripe Accounts ({stripeSettings.length})
+              {activeStripeSetting && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Active Stripe Account configured" />
+              )}
             </button>
           </div>
         </header>
 
-        {/* Filters & Search Control Bar */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-          <div className="p-4 bg-slate-50/70 border-b border-slate-100 flex flex-col lg:flex-row gap-3 justify-between items-center">
-            {/* Search Box */}
-            <div className="relative w-full lg:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Search title or author..."
-                className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+        {activeTab === 'books' ? (
+          <>
+            {/* Action Buttons Header Bar */}
+            <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+              <div className="flex flex-wrap gap-3">
+                {selectedBookIds.length > 0 && (
+                  <button 
+                    onClick={handleDeleteSelected}
+                    disabled={isSubmitting}
+                    className="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-rose-100 transition-all text-sm disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Xóa {selectedBookIds.length} đã chọn
+                  </button>
+                )}
+                
+                {books.length > 0 && (
+                  <button 
+                    onClick={handleDeleteAll}
+                    disabled={isSubmitting}
+                    className="bg-red-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-red-700 transition-all text-sm shadow-md shadow-red-200 disabled:opacity-50"
+                  >
+                    <Trash className="w-4 h-4" />
+                    Xóa Tất Cả ({books.length})
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <button 
+                  onClick={() => setIsBulkModalOpen(true)}
+                  className="bg-white text-indigo-600 border-2 border-indigo-600 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  Bulk Archival
+                </button>
+                <button 
+                  onClick={() => setIsModalOpen(true)}
+                  className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add New Book
+                </button>
+              </div>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-wrap gap-2 w-full lg:w-auto items-center">
-              {/* Author Filter */}
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
-                <Filter className="w-3.5 h-3.5 text-slate-400" />
-                <select 
-                  value={selectedAuthor} 
-                  onChange={(e) => setSelectedAuthor(e.target.value)}
-                  className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer max-w-[140px] truncate"
-                >
-                  <option value="">Tất cả tác giả ({uniqueAuthors.length})</option>
-                  {uniqueAuthors.map(author => (
-                    <option key={author} value={author}>{author}</option>
-                  ))}
-                </select>
-              </div>
+            {/* Filters & Search Control Bar */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+              <div className="p-4 bg-slate-50/70 border-b border-slate-100 flex flex-col lg:flex-row gap-3 justify-between items-center">
+                {/* Search Box */}
+                <div className="relative w-full lg:w-80">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search title or author..."
+                    className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
 
-              {/* Category Filter */}
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
-                <Filter className="w-3.5 h-3.5 text-slate-400" />
-                <select 
-                  value={selectedCategory} 
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
-                >
-                  <option value="">Tất cả thể loại ({uniqueCategories.length})</option>
-                  {uniqueCategories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
+                {/* Filters */}
+                <div className="flex flex-wrap gap-2 w-full lg:w-auto items-center">
+                  {/* Author Filter */}
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                    <Filter className="w-3.5 h-3.5 text-slate-400" />
+                    <select 
+                      value={selectedAuthor} 
+                      onChange={(e) => setSelectedAuthor(e.target.value)}
+                      className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer max-w-[140px] truncate"
+                    >
+                      <option value="">Tất cả tác giả ({uniqueAuthors.length})</option>
+                      {uniqueAuthors.map(author => (
+                        <option key={author} value={author}>{author}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* Price Filter */}
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
-                <Filter className="w-3.5 h-3.5 text-slate-400" />
-                <select 
-                  value={selectedPriceFilter} 
-                  onChange={(e) => setSelectedPriceFilter(e.target.value)}
-                  className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
-                >
-                  <option value="">Tất cả mức giá</option>
-                  <option value="under5">Dưới $5.00</option>
-                  <option value="5to10">$5.00 - $10.00</option>
-                  <option value="over10">Trên $10.00</option>
-                  <option value="priceAsc">Giá: Thấp đến Cao</option>
-                  <option value="priceDesc">Giá: Cao đến Thấp</option>
-                </select>
-              </div>
+                  {/* Category Filter */}
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                    <Filter className="w-3.5 h-3.5 text-slate-400" />
+                    <select 
+                      value={selectedCategory} 
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
+                    >
+                      <option value="">Tất cả thể loại ({uniqueCategories.length})</option>
+                      {uniqueCategories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* Reset Filters */}
-              {isAnyFilterActive && (
+                  {/* Price Filter */}
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                    <Filter className="w-3.5 h-3.5 text-slate-400" />
+                    <select 
+                      value={selectedPriceFilter} 
+                      onChange={(e) => setSelectedPriceFilter(e.target.value)}
+                      className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
+                    >
+                      <option value="">Tất cả mức giá</option>
+                      <option value="under5">Dưới $5.00</option>
+                      <option value="5to10">$5.00 - $10.00</option>
+                      <option value="over10">Trên $10.00</option>
+                      <option value="priceAsc">Giá: Thấp đến Cao</option>
+                      <option value="priceDesc">Giá: Cao đến Thấp</option>
+                    </select>
+                  </div>
+
+                  {/* Reset Filters */}
+                  {isAnyFilterActive && (
+                    <button 
+                      onClick={clearFilters}
+                      className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                      title="Xóa bộ lọc"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Xóa lọc
+                    </button>
+                  )}
+                </div>
+
+                <div className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                  Hiển thị {filteredBooks.length} / {books.length} sách
+                </div>
+              </div>
+            </div>
+
+            {/* Book List Table */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider font-bold border-b border-slate-100">
+                      <th className="w-12 px-4 py-4 text-center">
+                        <input 
+                          type="checkbox"
+                          checked={isAllSelected}
+                          onChange={handleSelectAll}
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                      </th>
+                      <th className="px-6 py-4">Book Details</th>
+                      <th className="px-6 py-4">Category</th>
+                      <th className="px-6 py-4">Price</th>
+                      <th className="px-6 py-4">Files</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {loading ? (
+                      <tr>
+                        <td colSpan={6} className="py-20 text-center">
+                          <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-500 mb-2" />
+                          <span className="text-slate-400">Loading your collection...</span>
+                        </td>
+                      </tr>
+                    ) : filteredBooks.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-20 text-center">
+                          <p className="text-slate-400">No books found matching your criteria.</p>
+                          {isAnyFilterActive && (
+                            <button 
+                              onClick={clearFilters}
+                              className="mt-3 text-xs text-indigo-600 font-bold hover:underline"
+                            >
+                              Xóa tất cả bộ lọc
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredBooks.map((book) => {
+                        const isSelected = selectedBookIds.includes(book.id);
+                        return (
+                          <tr 
+                            key={book.id} 
+                            className={`transition-colors group ${isSelected ? 'bg-indigo-50/40' : 'hover:bg-slate-50/50'}`}
+                          >
+                            <td className="w-12 px-4 py-4 text-center">
+                              <input 
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelect(book.id)}
+                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-16 bg-slate-100 rounded overflow-hidden flex-shrink-0 shadow-sm border border-slate-200">
+                                  {book.cover_url ? (
+                                    <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <ImageIcon className="w-5 h-5 text-slate-300" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-slate-800">{book.title}</div>
+                                  <div className="text-sm text-slate-500">{book.author}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="px-3 py-1 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-full border border-indigo-100">
+                                {book.category}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 font-bold text-slate-700">{book.price}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex gap-2">
+                                {book.file_url ? (
+                                  <a href={book.file_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="Download Book">
+                                    <FileText className="w-4 h-4" />
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-300 text-xs">No file</span>
+                                )}
+                                {book.cover_url && (
+                                   <a href={book.cover_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="View Cover">
+                                     <ExternalLink className="w-4 h-4" />
+                                   </a>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={() => handleEdit(book)}
+                                  className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  title="Edit book"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => handleDelete(book.id)}
+                                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                  title="Delete book"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : (
+          /* STRIPE CONFIGURATION TAB */
+          <div className="space-y-6">
+            {/* Active Account Banner */}
+            <div className="bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
+              <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-300 text-xs font-bold rounded-full border border-emerald-500/30">
+                    <Zap className="w-3.5 h-3.5" /> Dynamic Multi-Account Payment Router
+                  </div>
+                  <h2 className="text-2xl font-bold">Stripe Account Configurations</h2>
+                  <p className="text-slate-300 text-sm max-w-2xl">
+                    Add multiple Stripe accounts and switch active destination keys with 1-click. Customers will automatically pay directly to the selected active Stripe account without redeploying Vercel!
+                  </p>
+                </div>
                 <button 
-                  onClick={clearFilters}
-                  className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
-                  title="Xóa bộ lọc"
+                  onClick={() => setIsStripeModalOpen(true)}
+                  className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold px-6 py-3.5 rounded-2xl flex items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all text-sm whitespace-nowrap"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Xóa lọc
+                  <Plus className="w-5 h-5" />
+                  Add Stripe Account
                 </button>
+              </div>
+
+              {activeStripeSetting ? (
+                <div className="mt-8 pt-6 border-t border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-white/5 p-4 rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400">
+                      <ShieldCheck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Currently Active Receiving Account</div>
+                      <div className="text-lg font-bold text-emerald-300 flex items-center gap-2">
+                        {activeStripeSetting.account_name}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-300 font-mono bg-black/30 px-3 py-1.5 rounded-lg border border-white/10">
+                    Secret Key: {activeStripeSetting.secret_key.slice(0, 12)}••••••••
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-8 pt-6 border-t border-white/10 text-xs text-amber-300 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  No custom active Stripe account selected. Currently falling back to default Vercel environment variables.
+                </div>
               )}
             </div>
 
-            <div className="text-xs text-slate-500 font-medium whitespace-nowrap">
-              Hiển thị {filteredBooks.length} / {books.length} sách
-            </div>
-          </div>
-        </div>
+            {/* Accounts Table */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
+                  <CreditCard className="w-5 h-5 text-indigo-600" />
+                  Configured Stripe Accounts ({stripeSettings.length})
+                </h3>
+              </div>
 
-        {/* Book List Table */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider font-bold border-b border-slate-100">
-                  <th className="w-12 px-4 py-4 text-center">
-                    <input 
-                      type="checkbox"
-                      checked={isAllSelected}
-                      onChange={handleSelectAll}
-                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                    />
-                  </th>
-                  <th className="px-6 py-4">Book Details</th>
-                  <th className="px-6 py-4">Category</th>
-                  <th className="px-6 py-4">Price</th>
-                  <th className="px-6 py-4">Files</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="py-20 text-center">
-                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-500 mb-2" />
-                      <span className="text-slate-400">Loading your collection...</span>
-                    </td>
-                  </tr>
-                ) : filteredBooks.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-20 text-center">
-                      <p className="text-slate-400">No books found matching your criteria.</p>
-                      {isAnyFilterActive && (
-                        <button 
-                          onClick={clearFilters}
-                          className="mt-3 text-xs text-indigo-600 font-bold hover:underline"
-                        >
-                          Xóa tất cả bộ lọc
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredBooks.map((book) => {
-                    const isSelected = selectedBookIds.includes(book.id);
-                    return (
-                      <tr 
-                        key={book.id} 
-                        className={`transition-colors group ${isSelected ? 'bg-indigo-50/40' : 'hover:bg-slate-50/50'}`}
-                      >
-                        <td className="w-12 px-4 py-4 text-center">
-                          <input 
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleToggleSelect(book.id)}
-                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                          />
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-16 bg-slate-100 rounded overflow-hidden flex-shrink-0 shadow-sm border border-slate-200">
-                              {book.cover_url ? (
-                                <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <ImageIcon className="w-5 h-5 text-slate-300" />
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-bold text-slate-800">{book.title}</div>
-                              <div className="text-sm text-slate-500">{book.author}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="px-3 py-1 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-full border border-indigo-100">
-                            {book.category}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-700">{book.price}</td>
-                        <td className="px-6 py-4">
-                          <div className="flex gap-2">
-                            {book.file_url ? (
-                              <a href={book.file_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="Download Book">
-                                <FileText className="w-4 h-4" />
-                              </a>
-                            ) : (
-                              <span className="text-slate-300 text-xs">No file</span>
-                            )}
-                            {book.cover_url && (
-                               <a href={book.cover_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="View Cover">
-                                 <ExternalLink className="w-4 h-4" />
-                               </a>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                              onClick={() => handleEdit(book)}
-                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                              title="Edit book"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => handleDelete(book.id)}
-                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                              title="Delete book"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider font-bold border-b border-slate-100">
+                      <th className="px-6 py-4">Account Name</th>
+                      <th className="px-6 py-4">Publishable Key</th>
+                      <th className="px-6 py-4">Secret Key</th>
+                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stripeLoading ? (
+                      <tr>
+                        <td colSpan={5} className="py-16 text-center">
+                          <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-500 mb-2" />
+                          <span className="text-slate-400">Loading Stripe configurations...</span>
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                    ) : stripeSettings.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-16 text-center">
+                          <CreditCard className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                          <p className="text-slate-500 font-bold">No custom Stripe accounts configured yet.</p>
+                          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                            Click "+ Add Stripe Account" above to add your Publishable & Secret keys and receive payments directly into your account!
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      stripeSettings.map((setting) => (
+                        <tr key={setting.id} className={`hover:bg-slate-50/60 transition-colors ${setting.is_active ? 'bg-emerald-50/30' : ''}`}>
+                          <td className="px-6 py-4">
+                            <div className="font-bold text-slate-800 flex items-center gap-2">
+                              {setting.account_name}
+                              {setting.is_active && (
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full border border-emerald-200">
+                                  ACTIVE
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <code className="text-xs font-mono text-slate-600 bg-slate-100 px-2 py-1 rounded">
+                              {setting.publishable_key ? `${setting.publishable_key.slice(0, 16)}...` : 'N/A'}
+                            </code>
+                          </td>
+                          <td className="px-6 py-4">
+                            <code className="text-xs font-mono text-slate-600 bg-slate-100 px-2 py-1 rounded">
+                              {setting.secret_key.slice(0, 12)}••••••••
+                            </code>
+                          </td>
+                          <td className="px-6 py-4">
+                            {setting.is_active ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+                                <CheckCircle2 className="w-4 h-4" /> Active Destination
+                              </span>
+                            ) : (
+                              <span className="text-xs font-medium text-slate-400">Inactive</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex justify-end items-center gap-3">
+                              {!setting.is_active && (
+                                <button 
+                                  onClick={() => handleActivateStripeSetting(setting.id)}
+                                  className="px-3.5 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-indigo-200"
+                                >
+                                  <Check className="w-3.5 h-3.5" /> Kích hoạt nhận tiền
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => handleDeleteStripeSetting(setting.id)}
+                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                title="Delete Configuration"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Add Stripe Account Modal */}
+      {isStripeModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <CreditCard className="w-6 h-6 text-indigo-600" />
+                Add Stripe Account Configuration
+              </h2>
+              <button onClick={() => setIsStripeModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStripeSettingSubmit} className="p-8 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Account Name (Tên nhận diện tài khoản)</label>
+                <input 
+                  required
+                  type="text" 
+                  placeholder="e.g. BookPatr Main Store, Backup Account"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800"
+                  value={stripeFormData.account_name}
+                  onChange={(e) => setStripeFormData({...stripeFormData, account_name: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Publishable Key (pk_live_... hoặc pk_test_...)</label>
+                <input 
+                  type="text" 
+                  placeholder="pk_live_51U0CrfRMPnMtVmqSBawUCkd..."
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-mono text-xs text-slate-800"
+                  value={stripeFormData.publishable_key}
+                  onChange={(e) => setStripeFormData({...stripeFormData, publishable_key: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Secret Key (sk_live_... hoặc sk_test_...)</label>
+                <input 
+                  required
+                  type="password" 
+                  placeholder="sk_live_... hoặc sk_test_..."
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-mono text-xs text-slate-800"
+                  value={stripeFormData.secret_key}
+                  onChange={(e) => setStripeFormData({...stripeFormData, secret_key: e.target.value})}
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Secret Key được sử dụng ở backend để khởi tạo phiên thanh toán trực tiếp trên Stripe.</p>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <input 
+                  type="checkbox"
+                  id="is_active_checkbox"
+                  checked={stripeFormData.is_active}
+                  onChange={(e) => setStripeFormData({...stripeFormData, is_active: e.target.checked})}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <label htmlFor="is_active_checkbox" className="text-sm font-bold text-slate-700 cursor-pointer">
+                  Kích hoạt tài khoản này làm tài khoản nhận tiền chính ngay lập tức
+                </label>
+              </div>
+
+              <div className="pt-6 flex gap-4 border-t border-slate-100">
+                <button 
+                  type="button" 
+                  onClick={() => setIsStripeModalOpen(false)}
+                  className="flex-1 px-6 py-4 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={isSubmitting}
+                  type="submit" 
+                  className="flex-2 px-12 py-4 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
+                  Save Stripe Account
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Bulk Upload Modal */}
       {isBulkModalOpen && (
