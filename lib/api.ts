@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://logbook-kohl-one.vercel.app/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 
+  (process.env.NODE_ENV === 'development' ? 'http://localhost:5000/api' : 'https://logbook-kohl-one.vercel.app/api');
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -29,3 +30,5 @@ export const updateBook = (id: string, data: FormData | Partial<Book>) => {
   return api.put(`/books/${id}`, data, { headers });
 };
 export const deleteBook = (id: string) => api.delete(`/books/${id}`);
+export const deleteBatchBooks = (ids: string[]) => api.post('/books/delete-batch', { ids });
+export const deleteAllBooks = () => api.delete('/books/all/truncate');

@@ -11,9 +11,15 @@ import {
   Loader2, 
   X,
   Book as BookIcon,
-  ExternalLink
+  ExternalLink,
+  Filter,
+  RotateCcw,
+  CheckSquare,
+  Square,
+  Trash
 } from "lucide-react";
-import { getBooks, deleteBook, createBook, updateBook, Book } from "@/lib/api";
+import { getBooks, deleteBook, deleteBatchBooks, deleteAllBooks, createBook, updateBook, Book } from "@/lib/api";
+import { parseEpubFile } from "@/lib/epubParser";
 
 export default function BookManagePage() {
   const [books, setBooks] = useState<Book[]>([]);
@@ -22,6 +28,12 @@ export default function BookManagePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Selection & Filter states
+  const [selectedBookIds, setSelectedBookIds] = useState<string[]>([]);
+  const [selectedAuthor, setSelectedAuthor] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedPriceFilter, setSelectedPriceFilter] = useState("");
 
   // Form states
   const [formData, setFormData] = useState({
@@ -40,6 +52,9 @@ export default function BookManagePage() {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkBookFiles, setBulkBookFiles] = useState<File[]>([]);
   const [bulkCoverFiles, setBulkCoverFiles] = useState<File[]>([]);
+  const [bulkAuthor, setBulkAuthor] = useState("Martin Chavez");
+  const [bulkCategory, setBulkCategory] = useState("Non-Fiction");
+  const [bulkPrice, setBulkPrice] = useState("$12.00");
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
@@ -62,9 +77,67 @@ export default function BookManagePage() {
     try {
       await deleteBook(id);
       setBooks(books.filter(b => b.id !== id));
+      setSelectedBookIds(selectedBookIds.filter(itemId => itemId !== id));
     } catch (error) {
       alert("Failed to delete book");
     }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedBookIds.length === filteredBooks.length && filteredBooks.length > 0) {
+      setSelectedBookIds([]);
+    } else {
+      setSelectedBookIds(filteredBooks.map(b => b.id));
+    }
+  };
+
+  const handleToggleSelect = (id: string) => {
+    if (selectedBookIds.includes(id)) {
+      setSelectedBookIds(selectedBookIds.filter(itemId => itemId !== id));
+    } else {
+      setSelectedBookIds([...selectedBookIds, id]);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedBookIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedBookIds.length} selected book(s)?`)) return;
+
+    try {
+      setIsSubmitting(true);
+      await deleteBatchBooks(selectedBookIds);
+      setBooks(books.filter(b => !selectedBookIds.includes(b.id)));
+      setSelectedBookIds([]);
+    } catch (error) {
+      console.error("Batch delete failed:", error);
+      alert("Failed to delete selected books.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (books.length === 0) return;
+    if (!confirm("WARNING: Are you sure you want to delete ALL books in the collection? This cannot be undone!")) return;
+
+    try {
+      setIsSubmitting(true);
+      await deleteAllBooks();
+      setBooks([]);
+      setSelectedBookIds([]);
+    } catch (error) {
+      console.error("Delete all failed:", error);
+      alert("Failed to delete all books.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setSelectedAuthor("");
+    setSelectedCategory("");
+    setSelectedPriceFilter("");
   };
 
   const handleEdit = (book: Book) => {
@@ -134,35 +207,51 @@ export default function BookManagePage() {
     setIsSubmitting(true);
     setBulkProgress({ current: 0, total: bulkBookFiles.length });
 
-    const authors = ["James Wilson", "Robert Miller", "Michael Davis", "William Taylor", "David Anderson"];
-    const categories = ["Fiction", "Philosophy", "Classic", "Poetry", "Non-Fiction"];
-    const prices = ["0.99", "1.99", "2.99", "3.99", "4.99", "5.99", "6.99", "7.99", "8.99", "9.99"];
-
     try {
       for (let i = 0; i < bulkBookFiles.length; i++) {
         setBulkProgress({ current: i + 1, total: bulkBookFiles.length });
         const file = bulkBookFiles[i];
-        const cover = bulkCoverFiles[i] || null;
+        const manualCover = bulkCoverFiles[i] || null;
 
-        const title = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
-        const author = authors[Math.floor(Math.random() * authors.length)];
-        const category = categories[Math.floor(Math.random() * categories.length)];
-        const price = `$${prices[Math.floor(Math.random() * prices.length)]}`;
-        const description = `An exceptional piece of literature that explores the depths of ${category.toLowerCase()} through the unique lens of ${author}. A must-read for collectors and enthusiasts alike.`;
+        let title = file.name
+          .replace(/\.[^/.]+$/, "")
+          .replace(/^[\d\s.\-_]+/, "")
+          .replace(/_/g, " ")
+          .trim();
+
+        let author = bulkAuthor.trim() || "Unknown Author";
+        let description = "";
+        let extractedCoverFile: File | null = null;
+
+        if (file.name.toLowerCase().endsWith(".epub")) {
+          const epubData = await parseEpubFile(file, bulkAuthor);
+          if (epubData.title) title = epubData.title;
+          if (epubData.author && (!bulkAuthor || bulkAuthor.trim() === "")) {
+            author = epubData.author;
+          }
+          if (epubData.description) description = epubData.description;
+          extractedCoverFile = epubData.coverFile;
+        }
+
+        if (!description) {
+          description = `Collection volume for ${title}. An essential guide for readers.`;
+        }
+
+        const finalCover = manualCover || extractedCoverFile;
 
         const data = new FormData();
         data.append("title", title);
         data.append("author", author);
         data.append("description", description);
-        data.append("category", category);
-        data.append("price", price);
+        data.append("category", bulkCategory || "Non-Fiction");
+        data.append("price", bulkPrice || "$12.00");
         data.append("details", JSON.stringify({ Publisher: "Signature Press", Pages: "120" }));
         data.append("file", file);
-        if (cover) data.append("cover", cover);
+        if (finalCover) data.append("cover", finalCover);
 
         await createBook(data);
       }
-      
+
       await fetchBooks();
       setBulkBookFiles([]);
       setBulkCoverFiles([]);
@@ -176,61 +265,195 @@ export default function BookManagePage() {
     }
   };
 
-  const filteredBooks = books.filter(book => 
-    book.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    book.author.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Get unique filter values
+  const uniqueAuthors = Array.from(new Set(books.map(b => b.author).filter(Boolean))).sort();
+  const uniqueCategories = Array.from(new Set(books.map(b => b.category).filter(Boolean))).sort();
+
+  // Filter & Sort Logic
+  const filteredBooks = books.filter(book => {
+    const matchesSearch = 
+      book.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      book.author.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesAuthor = !selectedAuthor || book.author === selectedAuthor;
+    const matchesCategory = !selectedCategory || book.category === selectedCategory;
+
+    let matchesPrice = true;
+    const numericPrice = parseFloat((book.price || "").replace(/[^0-9.]/g, "")) || 0;
+    if (selectedPriceFilter === "under5") {
+      matchesPrice = numericPrice < 5;
+    } else if (selectedPriceFilter === "5to10") {
+      matchesPrice = numericPrice >= 5 && numericPrice <= 10;
+    } else if (selectedPriceFilter === "over10") {
+      matchesPrice = numericPrice > 10;
+    }
+
+    return matchesSearch && matchesAuthor && matchesCategory && matchesPrice;
+  }).sort((a, b) => {
+    if (selectedPriceFilter === "priceAsc") {
+      const priceA = parseFloat((a.price || "").replace(/[^0-9.]/g, "")) || 0;
+      const priceB = parseFloat((b.price || "").replace(/[^0-9.]/g, "")) || 0;
+      return priceA - priceB;
+    }
+    if (selectedPriceFilter === "priceDesc") {
+      const priceA = parseFloat((a.price || "").replace(/[^0-9.]/g, "")) || 0;
+      const priceB = parseFloat((b.price || "").replace(/[^0-9.]/g, "")) || 0;
+      return priceB - priceA;
+    }
+    return 0;
+  });
+
+  const isAllSelected = filteredBooks.length > 0 && selectedBookIds.length === filteredBooks.length;
+  const isAnyFilterActive = Boolean(searchTerm || selectedAuthor || selectedCategory || selectedPriceFilter);
 
   return (
     <div className="min-h-screen bg-slate-50 p-8 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto">
-        <header className="flex justify-between items-center mb-12">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
               <BookIcon className="w-8 h-8 text-indigo-600" />
               Bookpatr Management
             </h1>
-            <p className="text-slate-500 mt-1">Manage your literary collection and archival files.</p>
+            <p className="text-slate-500 mt-1">Manage your literary collection, archival files, and batch actions.</p>
           </div>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-3">
+            {selectedBookIds.length > 0 && (
+              <button 
+                onClick={handleDeleteSelected}
+                disabled={isSubmitting}
+                className="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-rose-100 transition-all text-sm disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                Xóa {selectedBookIds.length} đã chọn
+              </button>
+            )}
+            
+            {books.length > 0 && (
+              <button 
+                onClick={handleDeleteAll}
+                disabled={isSubmitting}
+                className="bg-red-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-red-700 transition-all text-sm shadow-md shadow-red-200 disabled:opacity-50"
+              >
+                <Trash className="w-4 h-4" />
+                Xóa Tất Cả ({books.length})
+              </button>
+            )}
+
             <button 
               onClick={() => setIsBulkModalOpen(true)}
-              className="bg-white text-indigo-600 border-2 border-indigo-600 px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all"
+              className="bg-white text-indigo-600 border-2 border-indigo-600 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all text-sm"
             >
-              <Plus className="w-5 h-5" />
+              <Plus className="w-4 h-4" />
               Bulk Archival
             </button>
             <button 
               onClick={() => setIsModalOpen(true)}
-              className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+              className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 text-sm"
             >
-              <Plus className="w-5 h-5" />
+              <Plus className="w-4 h-4" />
               Add New Book
             </button>
           </div>
         </header>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row gap-4 justify-between items-center">
-            <div className="relative w-full md:w-96">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        {/* Filters & Search Control Bar */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+          <div className="p-4 bg-slate-50/70 border-b border-slate-100 flex flex-col lg:flex-row gap-3 justify-between items-center">
+            {/* Search Box */}
+            <div className="relative w-full lg:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="Search by title or author..."
-                className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                placeholder="Search title or author..."
+                className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <div className="text-sm text-slate-500 font-medium">
-              Showing {filteredBooks.length} books
+
+            {/* Filters */}
+            <div className="flex flex-wrap gap-2 w-full lg:w-auto items-center">
+              {/* Author Filter */}
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                <Filter className="w-3.5 h-3.5 text-slate-400" />
+                <select 
+                  value={selectedAuthor} 
+                  onChange={(e) => setSelectedAuthor(e.target.value)}
+                  className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer max-w-[140px] truncate"
+                >
+                  <option value="">Tất cả tác giả ({uniqueAuthors.length})</option>
+                  {uniqueAuthors.map(author => (
+                    <option key={author} value={author}>{author}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Category Filter */}
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                <Filter className="w-3.5 h-3.5 text-slate-400" />
+                <select 
+                  value={selectedCategory} 
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
+                >
+                  <option value="">Tất cả thể loại ({uniqueCategories.length})</option>
+                  {uniqueCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Price Filter */}
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                <Filter className="w-3.5 h-3.5 text-slate-400" />
+                <select 
+                  value={selectedPriceFilter} 
+                  onChange={(e) => setSelectedPriceFilter(e.target.value)}
+                  className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
+                >
+                  <option value="">Tất cả mức giá</option>
+                  <option value="under5">Dưới $5.00</option>
+                  <option value="5to10">$5.00 - $10.00</option>
+                  <option value="over10">Trên $10.00</option>
+                  <option value="priceAsc">Giá: Thấp đến Cao</option>
+                  <option value="priceDesc">Giá: Cao đến Thấp</option>
+                </select>
+              </div>
+
+              {/* Reset Filters */}
+              {isAnyFilterActive && (
+                <button 
+                  onClick={clearFilters}
+                  className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                  title="Xóa bộ lọc"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Xóa lọc
+                </button>
+              )}
+            </div>
+
+            <div className="text-xs text-slate-500 font-medium whitespace-nowrap">
+              Hiển thị {filteredBooks.length} / {books.length} sách
             </div>
           </div>
+        </div>
 
+        {/* Book List Table */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider font-bold">
+                <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider font-bold border-b border-slate-100">
+                  <th className="w-12 px-4 py-4 text-center">
+                    <input 
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </th>
                   <th className="px-6 py-4">Book Details</th>
                   <th className="px-6 py-4">Category</th>
                   <th className="px-6 py-4">Price</th>
@@ -241,77 +464,101 @@ export default function BookManagePage() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="py-20 text-center">
+                    <td colSpan={6} className="py-20 text-center">
                       <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-500 mb-2" />
                       <span className="text-slate-400">Loading your collection...</span>
                     </td>
                   </tr>
                 ) : filteredBooks.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-20 text-center">
+                    <td colSpan={6} className="py-20 text-center">
                       <p className="text-slate-400">No books found matching your criteria.</p>
+                      {isAnyFilterActive && (
+                        <button 
+                          onClick={clearFilters}
+                          className="mt-3 text-xs text-indigo-600 font-bold hover:underline"
+                        >
+                          Xóa tất cả bộ lọc
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ) : (
-                  filteredBooks.map((book) => (
-                    <tr key={book.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-16 bg-slate-100 rounded overflow-hidden flex-shrink-0 shadow-sm border border-slate-200">
-                            {book.cover_url ? (
-                              <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
+                  filteredBooks.map((book) => {
+                    const isSelected = selectedBookIds.includes(book.id);
+                    return (
+                      <tr 
+                        key={book.id} 
+                        className={`transition-colors group ${isSelected ? 'bg-indigo-50/40' : 'hover:bg-slate-50/50'}`}
+                      >
+                        <td className="w-12 px-4 py-4 text-center">
+                          <input 
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelect(book.id)}
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-16 bg-slate-100 rounded overflow-hidden flex-shrink-0 shadow-sm border border-slate-200">
+                              {book.cover_url ? (
+                                <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <ImageIcon className="w-5 h-5 text-slate-300" />
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-bold text-slate-800">{book.title}</div>
+                              <div className="text-sm text-slate-500">{book.author}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="px-3 py-1 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-full border border-indigo-100">
+                            {book.category}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 font-bold text-slate-700">{book.price}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex gap-2">
+                            {book.file_url ? (
+                              <a href={book.file_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="Download Book">
+                                <FileText className="w-4 h-4" />
+                              </a>
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <ImageIcon className="w-5 h-5 text-slate-300" />
-                              </div>
+                              <span className="text-slate-300 text-xs">No file</span>
+                            )}
+                            {book.cover_url && (
+                               <a href={book.cover_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="View Cover">
+                                 <ExternalLink className="w-4 h-4" />
+                               </a>
                             )}
                           </div>
-                          <div>
-                            <div className="font-bold text-slate-800">{book.title}</div>
-                            <div className="text-sm text-slate-500">{book.author}</div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => handleEdit(book)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                              title="Edit book"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleDelete(book.id)}
+                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                              title="Delete book"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="px-3 py-1 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-full border border-indigo-100">
-                          {book.category}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-bold text-slate-700">{book.price}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-2">
-                          {book.file_url ? (
-                            <a href={book.file_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="Download Book">
-                              <FileText className="w-4 h-4" />
-                            </a>
-                          ) : (
-                            <span className="text-slate-300 text-xs">No file</span>
-                          )}
-                          {book.cover_url && (
-                             <a href={book.cover_url} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-100 hover:text-indigo-600 transition-colors" title="View Cover">
-                               <ExternalLink className="w-4 h-4" />
-                             </a>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={() => handleEdit(book)}
-                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDelete(book.id)}
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -333,11 +580,52 @@ export default function BookManagePage() {
               </button>
             </div>
 
-            <div className="p-8 space-y-8">
+            <div className="p-8 space-y-6">
+              {/* Batch Metadata Settings */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Batch Metadata Settings</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Author Name (Tác giả)</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Martin Chavez"
+                      value={bulkAuthor}
+                      onChange={(e) => setBulkAuthor(e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Category (Thể loại)</label>
+                    <select 
+                      value={bulkCategory}
+                      onChange={(e) => setBulkCategory(e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium text-slate-800"
+                    >
+                      <option value="Non-Fiction">Non-Fiction</option>
+                      <option value="Fiction">Fiction</option>
+                      <option value="Philosophy">Philosophy</option>
+                      <option value="Classic">Classic</option>
+                      <option value="Poetry">Poetry</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Price (Giá)</label>
+                    <input 
+                      type="text" 
+                      placeholder="$12.00"
+                      value={bulkPrice}
+                      onChange={(e) => setBulkPrice(e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium text-slate-800"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-8">
                 <div className="space-y-4">
-                  <label className="block text-sm font-bold text-slate-700">1. Select Book Files ({bulkBookFiles.length})</label>
-                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:border-indigo-400 transition-colors relative">
+                  <label className="block text-sm font-bold text-slate-700">1. Select EPUB/PDF Files ({bulkBookFiles.length})</label>
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center hover:border-indigo-400 transition-colors relative bg-white">
                     <input 
                       type="file" 
                       multiple
@@ -345,27 +633,38 @@ export default function BookManagePage() {
                       onChange={(e) => setBulkBookFiles(Array.from(e.target.files || []))}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
-                    <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                    <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Drop PDF/EPUB files</p>
+                    <FileText className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
+                    <p className="text-xs text-slate-600 font-bold">Drop EPUB/PDF Files Here</p>
+                    <p className="text-[10px] text-slate-400 mt-1">EPUB covers & descriptions are auto-extracted!</p>
                   </div>
-                  <div className="max-h-32 overflow-y-auto text-[10px] text-slate-400 space-y-1 pr-2">
-                    {bulkBookFiles.map((f, idx) => (
-                      <div key={f.name + idx} className="flex justify-between items-center bg-slate-50 p-1.5 rounded hover:bg-slate-100 transition-colors group/item">
-                        <span className="truncate flex-grow">{f.name}</span>
-                        <button 
-                          onClick={() => setBulkBookFiles(bulkBookFiles.filter((_, i) => i !== idx))}
-                          className="text-slate-300 hover:text-rose-500 transition-colors ml-2"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                  <div className="max-h-36 overflow-y-auto text-[11px] text-slate-500 space-y-1.5 pr-2">
+                    {bulkBookFiles.map((f, idx) => {
+                      const cleanedName = f.name.replace(/\.[^/.]+$/, "").replace(/^[\d\s.\-_]+/, "").replace(/_/g, " ").trim();
+                      return (
+                        <div key={f.name + idx} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100 group/item">
+                          <div className="truncate flex-grow pr-2">
+                            <span className="font-medium text-slate-700">{cleanedName}</span>
+                            {f.name.toLowerCase().endsWith(".epub") && (
+                              <span className="ml-2 text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">
+                                Auto Cover & Intro
+                              </span>
+                            )}
+                          </div>
+                          <button 
+                            onClick={() => setBulkBookFiles(bulkBookFiles.filter((_, i) => i !== idx))}
+                            className="text-slate-300 hover:text-rose-500 transition-colors ml-2"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <label className="block text-sm font-bold text-slate-700">2. Select Cover Images ({bulkCoverFiles.length})</label>
-                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:border-indigo-400 transition-colors relative">
+                  <label className="block text-sm font-bold text-slate-700">2. Optional Manual Covers ({bulkCoverFiles.length})</label>
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center hover:border-indigo-400 transition-colors relative bg-white">
                     <input 
                       type="file" 
                       multiple
@@ -373,18 +672,19 @@ export default function BookManagePage() {
                       onChange={(e) => setBulkCoverFiles(Array.from(e.target.files || []))}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
-                    <ImageIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                    <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Drop Covers (Matching Order)</p>
+                    <ImageIcon className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs text-slate-400 font-medium">Drop External Covers (If Needed)</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Leaves empty if using built-in EPUB covers</p>
                   </div>
-                  <div className="max-h-32 overflow-y-auto text-[10px] text-slate-400 space-y-1 pr-2">
+                  <div className="max-h-36 overflow-y-auto text-[11px] text-slate-500 space-y-1.5 pr-2">
                     {bulkCoverFiles.map((f, idx) => (
-                      <div key={f.name + idx} className="flex justify-between items-center bg-slate-50 p-1.5 rounded hover:bg-slate-100 transition-colors group/item">
+                      <div key={f.name + idx} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100 group/item">
                         <span className="truncate flex-grow">{f.name}</span>
                         <button 
                           onClick={() => setBulkCoverFiles(bulkCoverFiles.filter((_, i) => i !== idx))}
                           className="text-slate-300 hover:text-rose-500 transition-colors ml-2"
                         >
-                          <X className="w-3 h-3" />
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     ))}
