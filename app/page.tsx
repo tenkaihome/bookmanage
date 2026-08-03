@@ -36,7 +36,7 @@ import {
   deleteStripeSetting,
   StripeSetting
 } from "@/lib/api";
-import { parseEpubFile } from "@/lib/epubParser";
+import { parseEpubFile, cleanExtractedDescription } from "@/lib/epubParser";
 
 export default function BookManagePage() {
   const [activeTab, setActiveTab] = useState<'books' | 'stripe'>('books');
@@ -226,7 +226,7 @@ export default function BookManagePage() {
     setFormData({
       title: book.title,
       author: book.author,
-      description: book.description,
+      description: cleanExtractedDescription(book.description || ""),
       category: book.category,
       price: book.price,
       publisher: book.details?.Publisher || "",
@@ -1155,8 +1155,9 @@ export default function BookManagePage() {
                 <div className="col-span-2">
                   <label className="block text-sm font-bold text-slate-700 mb-2">Description</label>
                   <textarea 
-                    rows={3}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none"
+                    rows={6}
+                    placeholder="Full introduction & description..."
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-y text-sm leading-relaxed"
                     value={formData.description}
                     onChange={(e) => setFormData({...formData, description: e.target.value})}
                   />

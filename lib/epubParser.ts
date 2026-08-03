@@ -7,6 +7,73 @@ export interface ExtractedEpubData {
   coverFile: File | null;
 }
 
+// Robust HTML & XML entity decoder
+export function decodeHtmlEntities(text: string): string {
+  if (!text) return "";
+  return text
+    // Hex entities e.g. &#x2014; -> —, &#x2019; -> ’
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      try { return String.fromCharCode(parseInt(hex, 16)); } catch { return _; }
+    })
+    // Decimal entities e.g. &#8212; -> —, &#8217; -> ’
+    .replace(/&#([0-9]+);/g, (_, dec) => {
+      try { return String.fromCharCode(parseInt(dec, 10)); } catch { return _; }
+    })
+    // Named entities
+    .replace(/&rsquo;/gi, "'")
+    .replace(/&lsquo;/gi, "'")
+    .replace(/&rdquo;/gi, '"')
+    .replace(/&ldquo;/gi, '"')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    .replace(/&hellip;/gi, '…')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&copy;/gi, '©')
+    .replace(/&reg;/gi, '®')
+    .replace(/&trade;/gi, '™');
+}
+
+// Clean extracted text: decode entities, preserve paragraphs, strip duplicate "Introduction" titles
+export function cleanExtractedDescription(text: string): string {
+  if (!text) return "";
+
+  // 1. Decode entities
+  let clean = decodeHtmlEntities(text);
+
+  // 2. Convert paragraph breaks and headings to newlines, remove all other tags
+  clean = clean
+    .replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '');
+
+  // 3. Decode entities again after tag stripping
+  clean = decodeHtmlEntities(clean);
+
+  // 4. Remove duplicate leading "Introduction", "Preface", "Foreword" headers
+  clean = clean
+    .replace(/^(\s*introduction\s*)+/gi, '')
+    .replace(/^(\s*preface\s*)+/gi, '')
+    .replace(/^(\s*foreword\s*)+/gi, '')
+    .replace(/^(\s*overview\s*)+/gi, '')
+    .replace(/^(\s*summary\s*)+/gi, '');
+
+  // 5. Normalize whitespace while preserving double line breaks for paragraphs
+  clean = clean
+    .split('\n')
+    .map(line => line.trim().replace(/[ \t]+/g, ' '))
+    .filter((line, idx, arr) => line.length > 0 || (idx > 0 && arr[idx - 1].length > 0))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return clean;
+}
+
 export async function parseEpubFile(file: File, defaultAuthor: string = ""): Promise<ExtractedEpubData> {
   // Clean Title from filename: strip leading numbers, dots, spaces, underscores, dashes
   let cleanTitle = file.name
@@ -46,30 +113,28 @@ export async function parseEpubFile(file: File, defaultAuthor: string = ""): Pro
       // Extract OPF title if cleanTitle is empty
       const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
       if (!cleanTitle && titleMatch) {
-        cleanTitle = titleMatch[1].trim();
+        cleanTitle = decodeHtmlEntities(titleMatch[1].trim());
       }
 
       // Extract OPF author if default author not provided
       const creatorMatch = opfContent.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
       if (!author && creatorMatch) {
-        author = creatorMatch[1].trim();
+        author = decodeHtmlEntities(creatorMatch[1].trim());
       }
 
       // Extract OPF description
       const descMatch = opfContent.match(/<dc:description[^>]*>([\s\S]*?)<\/dc:description>/i);
       if (descMatch) {
-        description = descMatch[1].replace(/<[^>]+>/g, "").trim();
+        description = cleanExtractedDescription(descMatch[1]);
       }
 
       // Find cover image reference in OPF
-      // Case A: manifest item with properties="cover-image"
       const coverPropMatch = opfContent.match(/<item[^>]*properties="[^"]*cover-image[^"]*"[^>]*href="([^"]+)"/i) ||
                              opfContent.match(/<item[^>]*href="([^"]+)"[^>]*properties="[^"]*cover-image[^"]*"/i);
       if (coverPropMatch) {
         coverHref = opfDir + coverPropMatch[1];
       }
 
-      // Case B: meta name="cover" content="cover-id" -> manifest item with id="cover-id"
       if (!coverHref) {
         const metaCoverMatch = opfContent.match(/<meta[^>]*name="cover"[^>]*content="([^"]+)"/i) ||
                                opfContent.match(/<meta[^>]*content="([^"]+)"[^>]*name="cover"/i);
@@ -83,7 +148,6 @@ export async function parseEpubFile(file: File, defaultAuthor: string = ""): Pro
         }
       }
 
-      // Case C: manifest item with id="cover" or id="cover-image"
       if (!coverHref) {
         const coverIdMatch = opfContent.match(/<item[^>]*id="(?:cover|cover-image|coverimage|img-cover)"[^>]*href="([^"]+)"/i) ||
                              opfContent.match(/<item[^>]*href="([^"]+)"[^>]*id="(?:cover|cover-image|coverimage|img-cover)"/i);
@@ -93,20 +157,15 @@ export async function parseEpubFile(file: File, defaultAuthor: string = ""): Pro
       }
     }
 
-    // 2. Extract description from chapters/html if OPF description is empty
-    if (!description) {
+    // 2. Extract description from chapters/html if OPF description is empty or too short
+    if (!description || description.length < 50) {
       const htmlEntries = Object.keys(zip.files).filter(p => p.match(/\.(xhtml|html|htm)$/i));
       const introEntry = htmlEntries.find(p => p.match(/intro|preface|foreword|ch01|chapter1|01/i)) || htmlEntries[0];
       if (introEntry && zip.file(introEntry)) {
         const textContent = await zip.file(introEntry)!.async("text");
-        const cleanText = textContent
-          .replace(/<style[\s\S]*?<\/style>/gi, '')
-          .replace(/<script[\s\S]*?<\/script>/gi, '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+        const cleanText = cleanExtractedDescription(textContent);
         if (cleanText.length > 50) {
-          description = cleanText.substring(0, 450) + (cleanText.length > 450 ? '...' : '');
+          description = cleanText; // Full introduction without artificial truncation!
         }
       }
     }
