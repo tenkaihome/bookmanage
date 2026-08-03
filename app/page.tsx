@@ -20,7 +20,10 @@ import {
   Key,
   ShieldCheck,
   Zap,
-  Check
+  Check,
+  DollarSign,
+  Sparkles,
+  Dices
 } from "lucide-react";
 import { 
   getBooks, 
@@ -32,6 +35,7 @@ import {
   Book,
   getStripeSettings,
   addStripeSetting,
+  updateStripeSetting,
   activateStripeSetting,
   deleteStripeSetting,
   StripeSetting
@@ -57,12 +61,19 @@ export default function BookManagePage() {
   const [stripeSettings, setStripeSettings] = useState<StripeSetting[]>([]);
   const [stripeLoading, setStripeLoading] = useState(false);
   const [isStripeModalOpen, setIsStripeModalOpen] = useState(false);
+  const [editingStripeSetting, setEditingStripeSetting] = useState<StripeSetting | null>(null);
   const [stripeFormData, setStripeFormData] = useState({
     account_name: "",
     publishable_key: "",
     secret_key: "",
     is_active: true
   });
+
+  // Randomize Prices states
+  const [isRandomPriceModalOpen, setIsRandomPriceModalOpen] = useState(false);
+  const [randomPriceInput, setRandomPriceInput] = useState("$0.50\n$0.99\n$1.50\n$2.99\n$4.99\n$9.99\n$14.99\n$19.99");
+  const [randomPriceTarget, setRandomPriceTarget] = useState<'all' | 'selected'>('all');
+  const [randomPriceProgress, setRandomPriceProgress] = useState({ current: 0, total: 0 });
 
   // Form states
   const [formData, setFormData] = useState({
@@ -182,6 +193,23 @@ export default function BookManagePage() {
     setSelectedPriceFilter("");
   };
 
+  const handleStartAddStripeSetting = () => {
+    setEditingStripeSetting(null);
+    setStripeFormData({ account_name: "", publishable_key: "", secret_key: "", is_active: true });
+    setIsStripeModalOpen(true);
+  };
+
+  const handleStartEditStripeSetting = (setting: StripeSetting) => {
+    setEditingStripeSetting(setting);
+    setStripeFormData({
+      account_name: setting.account_name,
+      publishable_key: setting.publishable_key || "",
+      secret_key: setting.secret_key || "",
+      is_active: setting.is_active
+    });
+    setIsStripeModalOpen(true);
+  };
+
   const handleAddStripeSettingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stripeFormData.account_name || !stripeFormData.secret_key) {
@@ -190,15 +218,78 @@ export default function BookManagePage() {
     }
     setIsSubmitting(true);
     try {
-      await addStripeSetting(stripeFormData);
+      if (editingStripeSetting) {
+        await updateStripeSetting(editingStripeSetting.id, stripeFormData);
+      } else {
+        await addStripeSetting(stripeFormData);
+      }
       await fetchStripeSettings();
       setIsStripeModalOpen(false);
+      setEditingStripeSetting(null);
       setStripeFormData({ account_name: "", publishable_key: "", secret_key: "", is_active: true });
     } catch (error: any) {
-      console.error("Failed to add Stripe account:", error);
-      alert(error.response?.data?.error || "Failed to add Stripe account configuration.");
+      console.error("Failed to save Stripe account:", error);
+      alert(error.response?.data?.error || "Failed to save Stripe account configuration.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkRandomizePricesSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Parse prices from multiline text input
+    const rawLines = randomPriceInput.split('\n');
+    const prices = rawLines
+      .map(line => line.trim().replace(/[^0-9.]/g, ''))
+      .filter(val => val.length > 0)
+      .map(val => {
+        const num = parseFloat(val);
+        return isNaN(num) ? null : `$${num.toFixed(2)}`;
+      })
+      .filter((val): val is string => val !== null);
+
+    if (prices.length === 0) {
+      alert("Please enter at least one valid price (e.g. 0.50, 0.99, 1.50)");
+      return;
+    }
+
+    const targetBooks = randomPriceTarget === 'selected' && selectedBookIds.length > 0
+      ? books.filter(b => selectedBookIds.includes(b.id))
+      : books;
+
+    if (targetBooks.length === 0) {
+      alert("No books selected to update!");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setRandomPriceProgress({ current: 0, total: targetBooks.length });
+
+    try {
+      for (let i = 0; i < targetBooks.length; i++) {
+        setRandomPriceProgress({ current: i + 1, total: targetBooks.length });
+        const book = targetBooks[i];
+        // Pick a random price from the parsed prices array
+        const randomPrice = prices[Math.floor(Math.random() * prices.length)];
+
+        await updateBook(book.id, {
+          title: book.title,
+          author: book.author,
+          category: book.category,
+          price: randomPrice
+        });
+      }
+
+      await fetchBooks();
+      setIsRandomPriceModalOpen(false);
+      alert(`Successfully assigned random prices to ${targetBooks.length} books!`);
+    } catch (error) {
+      console.error("Bulk price randomization failed:", error);
+      alert("Failed to randomize prices. Check console for details.");
+    } finally {
+      setIsSubmitting(false);
+      setRandomPriceProgress({ current: 0, total: 0 });
     }
   };
 
@@ -460,6 +551,14 @@ export default function BookManagePage() {
 
               <div className="flex flex-wrap gap-3">
                 <button 
+                  onClick={() => setIsRandomPriceModalOpen(true)}
+                  className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-100 transition-all text-sm"
+                  title="Randomize prices across books"
+                >
+                  <Dices className="w-4 h-4 text-emerald-600" />
+                  Randomize Prices
+                </button>
+                <button 
                   onClick={() => setIsBulkModalOpen(true)}
                   className="bg-white text-indigo-600 border-2 border-indigo-600 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all text-sm"
                 >
@@ -701,7 +800,7 @@ export default function BookManagePage() {
                   </p>
                 </div>
                 <button 
-                  onClick={() => setIsStripeModalOpen(true)}
+                  onClick={handleStartAddStripeSetting}
                   className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold px-6 py-3.5 rounded-2xl flex items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all text-sm whitespace-nowrap"
                 >
                   <Plus className="w-5 h-5" />
@@ -805,7 +904,7 @@ export default function BookManagePage() {
                             )}
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <div className="flex justify-end items-center gap-3">
+                            <div className="flex justify-end items-center gap-2">
                               {!setting.is_active && (
                                 <button 
                                   onClick={() => handleActivateStripeSetting(setting.id)}
@@ -814,6 +913,13 @@ export default function BookManagePage() {
                                   <Check className="w-3.5 h-3.5" /> Activate Account
                                 </button>
                               )}
+                              <button 
+                                onClick={() => handleStartEditStripeSetting(setting)}
+                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                title="Edit Configuration"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
                               <button 
                                 onClick={() => handleDeleteStripeSetting(setting.id)}
                                 className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
@@ -1204,6 +1310,124 @@ export default function BookManagePage() {
                 >
                   {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                   {editingBook ? "Save Changes" : "Archive Book"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Randomize Prices Modal */}
+      {isRandomPriceModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <Dices className="w-6 h-6 text-emerald-600" />
+                Bulk Randomize Book Prices
+              </h2>
+              <button 
+                onClick={() => setIsRandomPriceModalOpen(false)} 
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleBulkRandomizePricesSubmit} className="p-8 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">
+                  Target Price Pool (One price per line)
+                </label>
+                <p className="text-xs text-slate-500 mb-3">
+                  Enter prices separated by ENTER. Every target book will be assigned a randomly chosen price from this list!
+                </p>
+                <textarea
+                  required
+                  rows={6}
+                  value={randomPriceInput}
+                  onChange={(e) => setRandomPriceInput(e.target.value)}
+                  placeholder="0.50&#10;0.99&#10;1.50&#10;2.99&#10;4.99&#10;9.99"
+                  className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none font-mono text-sm leading-relaxed text-slate-800"
+                />
+                <div className="mt-2 text-xs font-bold text-emerald-600 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {randomPriceInput.split('\n').filter(l => l.trim().length > 0).length} prices in pool
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Apply To:</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <label className={`p-4 rounded-2xl border-2 flex items-center gap-3 cursor-pointer transition-all ${
+                    randomPriceTarget === 'all' ? 'border-emerald-500 bg-emerald-50/40 text-emerald-900 font-bold' : 'border-slate-200 text-slate-600'
+                  }`}>
+                    <input 
+                      type="radio" 
+                      name="randomTarget" 
+                      checked={randomPriceTarget === 'all'} 
+                      onChange={() => setRandomPriceTarget('all')}
+                      className="w-4 h-4 text-emerald-600"
+                    />
+                    <span className="text-xs">All Books ({books.length} items)</span>
+                  </label>
+
+                  <label className={`p-4 rounded-2xl border-2 flex items-center gap-3 cursor-pointer transition-all ${
+                    selectedBookIds.length === 0 ? 'opacity-50 pointer-events-none border-slate-200' :
+                    randomPriceTarget === 'selected' ? 'border-emerald-500 bg-emerald-50/40 text-emerald-900 font-bold' : 'border-slate-200 text-slate-600'
+                  }`}>
+                    <input 
+                      type="radio" 
+                      name="randomTarget" 
+                      disabled={selectedBookIds.length === 0}
+                      checked={randomPriceTarget === 'selected'} 
+                      onChange={() => setRandomPriceTarget('selected')}
+                      className="w-4 h-4 text-emerald-600"
+                    />
+                    <span className="text-xs">Selected Books ({selectedBookIds.length} items)</span>
+                  </label>
+                </div>
+              </div>
+
+              {randomPriceProgress.total > 0 && (
+                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-200 space-y-2">
+                  <div className="flex justify-between text-xs font-bold text-emerald-800">
+                    <span>Randomizing prices...</span>
+                    <span>{randomPriceProgress.current} / {randomPriceProgress.total}</span>
+                  </div>
+                  <div className="w-full bg-emerald-200 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-emerald-600 h-full transition-all duration-200" 
+                      style={{ width: `${(randomPriceProgress.current / randomPriceProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 flex gap-4 border-t border-slate-100">
+                <button 
+                  type="button" 
+                  onClick={() => setIsRandomPriceModalOpen(false)}
+                  className="flex-1 px-6 py-3.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-all text-sm"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={isSubmitting}
+                  type="submit" 
+                  className="flex-2 px-8 py-3.5 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Applying Prices...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Dices className="w-4 h-4" />
+                      <span>Apply Random Prices</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

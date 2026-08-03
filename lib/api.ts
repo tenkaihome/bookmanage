@@ -46,4 +46,5 @@ export const getStripeSettings = () => api.get<StripeSetting[]>('/checkout/strip
 export const addStripeSetting = (data: { account_name: string; publishable_key?: string; secret_key: string; is_active?: boolean }) => 
   api.post<StripeSetting>('/checkout/stripe-settings', data);
 export const activateStripeSetting = (id: string) => api.put<StripeSetting>(`/checkout/stripe-settings/${id}/activate`);
+export const updateStripeSetting = (id: string, data: Partial<StripeSetting>) => api.put<StripeSetting>(`/checkout/stripe-settings/${id}`, data);
 export const deleteStripeSetting = (id: string) => api.delete(`/checkout/stripe-settings/${id}`);
