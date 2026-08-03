@@ -442,7 +442,7 @@ export default function BookManagePage() {
                     className="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-rose-100 transition-all text-sm disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" />
-                    Xóa {selectedBookIds.length} đã chọn
+                    Delete Selected ({selectedBookIds.length})
                   </button>
                 )}
                 
@@ -453,7 +453,7 @@ export default function BookManagePage() {
                     className="bg-red-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-red-700 transition-all text-sm shadow-md shadow-red-200 disabled:opacity-50"
                   >
                     <Trash className="w-4 h-4" />
-                    Xóa Tất Cả ({books.length})
+                    Delete All ({books.length})
                   </button>
                 )}
               </div>
@@ -501,7 +501,7 @@ export default function BookManagePage() {
                       onChange={(e) => setSelectedAuthor(e.target.value)}
                       className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer max-w-[140px] truncate"
                     >
-                      <option value="">Tất cả tác giả ({uniqueAuthors.length})</option>
+                      <option value="">All Authors ({uniqueAuthors.length})</option>
                       {uniqueAuthors.map(author => (
                         <option key={author} value={author}>{author}</option>
                       ))}
@@ -516,7 +516,7 @@ export default function BookManagePage() {
                       onChange={(e) => setSelectedCategory(e.target.value)}
                       className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
                     >
-                      <option value="">Tất cả thể loại ({uniqueCategories.length})</option>
+                      <option value="">All Categories ({uniqueCategories.length})</option>
                       {uniqueCategories.map(cat => (
                         <option key={cat} value={cat}>{cat}</option>
                       ))}
@@ -531,12 +531,12 @@ export default function BookManagePage() {
                       onChange={(e) => setSelectedPriceFilter(e.target.value)}
                       className="bg-transparent outline-none font-medium text-slate-700 cursor-pointer"
                     >
-                      <option value="">Tất cả mức giá</option>
-                      <option value="under5">Dưới $5.00</option>
+                      <option value="">All Price Ranges</option>
+                      <option value="under5">Under $5.00</option>
                       <option value="5to10">$5.00 - $10.00</option>
-                      <option value="over10">Trên $10.00</option>
-                      <option value="priceAsc">Giá: Thấp đến Cao</option>
-                      <option value="priceDesc">Giá: Cao đến Thấp</option>
+                      <option value="over10">Over $10.00</option>
+                      <option value="priceAsc">Price: Low to High</option>
+                      <option value="priceDesc">Price: High to Low</option>
                     </select>
                   </div>
 
@@ -545,16 +545,16 @@ export default function BookManagePage() {
                     <button 
                       onClick={clearFilters}
                       className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
-                      title="Xóa bộ lọc"
+                      title="Clear Filters"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
-                      Xóa lọc
+                      Clear Filters
                     </button>
                   )}
                 </div>
 
                 <div className="text-xs text-slate-500 font-medium whitespace-nowrap">
-                  Hiển thị {filteredBooks.length} / {books.length} sách
+                  Showing {filteredBooks.length} / {books.length} books
                 </div>
               </div>
             </div>
@@ -597,7 +597,7 @@ export default function BookManagePage() {
                               onClick={clearFilters}
                               className="mt-3 text-xs text-indigo-600 font-bold hover:underline"
                             >
-                              Xóa tất cả bộ lọc
+                              Clear All Filters
                             </button>
                           )}
                         </td>
@@ -811,7 +811,7 @@ export default function BookManagePage() {
                                   onClick={() => handleActivateStripeSetting(setting.id)}
                                   className="px-3.5 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-indigo-200"
                                 >
-                                  <Check className="w-3.5 h-3.5" /> Kích hoạt nhận tiền
+                                  <Check className="w-3.5 h-3.5" /> Activate Account
                                 </button>
                               )}
                               <button 
@@ -850,7 +850,7 @@ export default function BookManagePage() {
 
             <form onSubmit={handleAddStripeSettingSubmit} className="p-8 space-y-6">
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Account Name (Tên nhận diện tài khoản)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Account Name</label>
                 <input 
                   required
                   type="text" 
@@ -862,7 +862,7 @@ export default function BookManagePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Publishable Key (pk_live_... hoặc pk_test_...)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Publishable Key (pk_live_... or pk_test_...)</label>
                 <input 
                   type="text" 
                   placeholder="pk_live_51U0CrfRMPnMtVmqSBawUCkd..."
@@ -873,16 +873,16 @@ export default function BookManagePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Secret Key (sk_live_... hoặc sk_test_...)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Secret Key (sk_live_... or sk_test_...)</label>
                 <input 
                   required
                   type="password" 
-                  placeholder="sk_live_... hoặc sk_test_..."
+                  placeholder="sk_live_... or sk_test_..."
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-mono text-xs text-slate-800"
                   value={stripeFormData.secret_key}
                   onChange={(e) => setStripeFormData({...stripeFormData, secret_key: e.target.value})}
                 />
-                <p className="text-[11px] text-slate-400 mt-1">Secret Key được sử dụng ở backend để khởi tạo phiên thanh toán trực tiếp trên Stripe.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Secret Key is used on backend to instantiate Stripe checkout sessions.</p>
               </div>
 
               <div className="flex items-center gap-3 pt-2">
@@ -894,7 +894,7 @@ export default function BookManagePage() {
                   className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                 />
                 <label htmlFor="is_active_checkbox" className="text-sm font-bold text-slate-700 cursor-pointer">
-                  Kích hoạt tài khoản này làm tài khoản nhận tiền chính ngay lập tức
+                  Set as active payment receiving account immediately
                 </label>
               </div>
 
@@ -940,7 +940,7 @@ export default function BookManagePage() {
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Batch Metadata Settings</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Author Name (Tác giả)</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Author Name</label>
                     <input 
                       type="text" 
                       placeholder="e.g. Martin Chavez"
@@ -950,7 +950,7 @@ export default function BookManagePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Category (Thể loại)</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
                     <select 
                       value={bulkCategory}
                       onChange={(e) => setBulkCategory(e.target.value)}
@@ -964,7 +964,7 @@ export default function BookManagePage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Price (Giá)</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Price</label>
                     <input 
                       type="text" 
                       placeholder="$12.00"
